@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>P2P Content Delivery Network</title>
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<script>
+			function startTest(){
+								document.getElementById("testpage").src="http://139.59.30.223/"
+			}
+		</script>
+	</head>
+	<body bgcolor="#D6E6F2">
+		<center>
+			<h1>P2P Content Delivery Demonstration</h1>
+			<ol style="text-align:justify">
+				<li>Click the button below to start rendering the test page.</li>
+				<li>Open a new tab and load this page in it, this new tab will act as a peer.</li>
+				<li>Click the same button as in the first step in the newly opened tab, this time the test page will fetch it's resources using a webRTC P2P connection.</li>
+				<li>See your web browser's console logs for more details.</li>
+			</ol>
+			<br>
+			<iframe id="testpage" style="width: 1200px; height: 325px; border-style: solid"></iframe>
+			<br><br>
+			<button onclick="startTest()" style="border-style: solid; border-width: 1px; border-color: black; border-radius: 8%"><b>Click Here<b></button>
+		</center>
+	</body>
+</html>
