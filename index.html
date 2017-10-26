@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+<title>W3.CSS Template</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+html,body,h1,h2,h3,h4,h5,h6 {font-family: "Roboto", sans-serif;}
+.w3-sidebar {
+  z-index: 3;
+  width: 250px;
+  top: 43px;
+  bottom: 0;
+  height: inherit;
+}
+</style>
+</head>
+<body>
+<script>
+    function fallback() {
+        console.log("Peer connection failed, falling back to HTTP/HTTPS");
+        var linkarray = ["sample_files/w3.css", "sample_files/w3-theme-black.css", "sample_files/css.css", "sample_files/font-awesome.css"];
+        var xhttp = [];
+        for (var i = 0; i < linkarray.length; i++) {
+            xhttp[i] = new XMLHttpRequest();
+            xhttp[i].onreadystatechange = function() {
+                if (this.readyState == 4 && this.status == 200) {
+                    document.getElementsByTagName('style')[0].innerHTML = document.getElementsByTagName('style')[0].innerHTML + this.responseText;
+                    transmit_buffer[setVariableLoopController] = this.responseText;
+                    setVariableLoopController = setVariableLoopController + 1;
+                }
+            }
+
+            xhttp[i].open("GET", linkarray[i], true);
+            xhttp[i].send();
+        }
+    }
+
+
+    function findSendToCandidate() {
+        count = peerarray.length;
+        for (var i = 0; i < count; i++) {
+            if (peerarray[i] != username) {
+                candidate_send_to = peerarray[i];
+            }
+        }
+    }
+
+
+    var connection = new WebSocket('ws://139.59.30.223:9090');
+    var connectedUser, pc, dataChannel, count, candidate_send_to, username, connected_to, setVariableLoopController = 0;
+    var peerarray = [];
+    var transmit_buffer = [];
+
+    //Handle messages from server
+    connection.onmessage = function(message) {
+        var data = JSON.parse(message.data);
+        if (data.header.subtype == "0") {
+            if (data.header.result == "1") {
+                peerarray = data.payload.peerarray;
+                console.log("Logged In as: " + username);
+                findSendToCandidate();
+                var configuration = {
+                    "iceServers": [{
+                        "urls": "stun:stun4.l.google.com:19305"
+                    }]
+                };
+                pc = new RTCPeerConnection(configuration, {
+                    optional: []
+                }); //Creating RTC peer connection object//
+                console.log('Peer Connection Object Created');
+                pc.onicecandidate = function(event) {
+                    if (event.candidate) {
+                        console.log("Sending Candidates To: ", candidate_send_to);
+                        //send({type: '3', candidate: event.candidate, name: candidate_send_to});
+                        send({
+                            header: {
+                                s_id: username,
+                                r_id: candidate_send_to,
+                                type: '0',
+                                subtype: '3',
+                                result: ''
+                            },
+                            payload: {
+                                candidate: event.candidate
+                            }
+                        })
+                    }
+                }
+                openDataChannel(pc);
+                if (peerarray.length > 0) {
+                    pc.createOffer(function(offer) {
+                        //send({type: '1', offer: offer, name: data.payload.peerarray[0]});
+                        send({
+                            header: {
+                                s_id: username,
+                                r_id: candidate_send_to,
+                                type: '0',
+                                subtype: '1',
+                                result: ''
+                            },
+                            payload: {
+                                offer: offer
+                            }
+                        })
+                        pc.setLocalDescription(offer);
+                    }, function(err) {
+                        console.log(err);
+                        fallback()
+                    }, mediaConstraints);
+                } else {
+                    fallback();
+                }
+            }
+            if (data.header.result == "0") {
+                console.log("Unable to Log In");
+                fallback();
+            }
+        }
+
+
+        if (data.header.subtype == '3') {
+            pc.addIceCandidate(new RTCIceCandidate(data.payload.candidate));
+        }
+        if (data.header.subtype == '1') {
+            console.log('Got An Offer');
+            peerarray = data.payload.peerarray;
+            count = peerarray.length;
+            findSendToCandidate();
+            connectedUser = data.header.s_id;
+            pc.setRemoteDescription(new RTCSessionDescription(data.payload.offer));
+            pc.createAnswer(function(answer) {
+                pc.setLocalDescription(answer);
+                //send({type: '2', answer: answer, name: data.name});
+                send({
+                    header: {
+                        s_id: username,
+                        r_id: data.header.s_id,
+                        type: '0',
+                        subtype: '2',
+                        result: ''
+                    },
+                    payload: {
+                        answer: answer
+                    }
+                })
+                connected_to: data.header.s_id;
+            }, function(err) {
+                console.log(err);
+                fallback()
+            });
+        }
+        if (data.header.subtype == '2') {
+            console.log('Got An Answer');
+            pc.setRemoteDescription(new RTCSessionDescription(data.payload.answer));
+        }
+
+    }
+
+
+    connection.onopen = function() {
+        console.log("Connected");
+        username = new Date().getUTCMilliseconds();
+        //send({type: '0', uuid: username});
+        send({
+            header: {
+                s_id: username,
+                r_id: -1,
+                type: '0',
+                subtype: '0',
+                result: ''
+            },
+            payload: {}
+        })
+    };
+
+    connection.onerror = function(err) {
+        console.log("An Error Occured", err);
+        fallback();
+    };
+
+    function send(message) {
+        connection.send(JSON.stringify(message));
+    }
+
+    var mediaConstraints = {
+        mandatory: {
+            'OfferToReceiveAudio': false,
+            'OfferToReceiveVideo': false
+        }
+    };
+
+    function openDataChannel(pc) {
+
+        var dataChannelOptions = {
+            reliable: true,
+
+        };
+
+        dataChannel = pc.createDataChannel("myDataChannel", dataChannelOptions);
+
+        dataChannel.onopen = function() {
+            //console.log("Data Channel Opened"); 
+            if (transmit_buffer.length != 0) {
+                //console.log('Sending Resource(s)');
+                for (i = 0; i < transmit_buffer.length; i++) {
+                    dataChannel.send(JSON.stringify({
+                        header: {
+                            s_id: username,
+                            r_id: connected_to,
+                            type: '1',
+                            subtype: '0',
+                            result: ''
+                        },
+                        payload: {
+                            resources: transmit_buffer[i]
+                        }
+                    }));
+                }
+            }
+        };
+
+        dataChannel.onmessage = function(event) {
+            //console.log("Got message:"); 
+            //console.log("Displaying CSS:");
+            //var rcvd_data=event.data;
+            //document.getElementById("paragraph").innerHTML=event.data;
+            //var headcontent=document.getElementsByTagName('head')[0].innerHTML;
+            //headcontent=headcontent + "<style>" + rcvd_data + "</style>"; 
+
+        };
+
+        dataChannel.onerror = function(error) {
+            console.log("Error:", error);
+            fallback();
+        };
+
+        dataChannel.onclose = function() {
+            console.log("Data Channel Closed");
+        };
+
+
+        pc.ondatachannel = function(event) {
+
+            dataChannel = event.channel;
+
+            dataChannel.onopen = function() {
+                console.log("Data Channel Opened");
+                if (transmit_buffer.length != 0) {
+                    console.log('Sending Resource(s)');
+                    for (i = 0; i < transmit_buffer.length; i++) {
+                        dataChannel.send(JSON.stringify({
+                            header: {
+                                s_id: username,
+                                r_id: connected_to,
+                                type: '1',
+                                subtype: '0',
+                                result: ''
+                            },
+                            payload: {
+                                resources: transmit_buffer[i]
+                            }
+                        }));
+                    }
+                }
+            };
+
+            dataChannel.onmessage = function(event) {
+                console.log("Resource(s) received");
+                var rcvd_data = JSON.parse(event.data).payload.resources;
+                transmit_buffer.push = rcvd_data;
+                document.getElementsByTagName('style')[0].innerHTML = document.getElementsByTagName('style')[0].innerHTML + rcvd_data;
+                //document.getElementById("paragraph").innerHTML=event.data;
+                //var headcontent=document.getElementsByTagName('head')[0].innerHTML;
+                //headcontent=headcontent + "<style>" + rcvd_data + "</style>"; 
+
+            };
+
+            dataChannel.onerror = function(error) {
+                console.log("Error:", error);
+            };
+
+            dataChannel.onclose = function() {
+                console.log("Data Channel Closed");
+            }
+        };
+
+    };
+</script>
+<!-- Navbar -->
+<div class="w3-top">
+  <div class="w3-bar w3-theme w3-top w3-left-align w3-large">
+    <a class="w3-bar-item w3-button w3-right w3-hide-large w3-hover-white w3-large w3-theme-l1" href="javascript:void(0)" onclick="w3_open()"><i class="fa fa-bars"></i></a>
+    <a href="#" class="w3-bar-item w3-button w3-theme-l1">Logo</a>
+    <a href="#" class="w3-bar-item w3-button w3-hide-small w3-hover-white">About</a>
+    <a href="#" class="w3-bar-item w3-button w3-hide-small w3-hover-white">Values</a>
+    <a href="#" class="w3-bar-item w3-button w3-hide-small w3-hover-white">News</a>
+    <a href="#" class="w3-bar-item w3-button w3-hide-small w3-hover-white">Contact</a>
+    <a href="#" class="w3-bar-item w3-button w3-hide-small w3-hide-medium w3-hover-white">Clients</a>
+    <a href="#" class="w3-bar-item w3-button w3-hide-small w3-hide-medium w3-hover-white">Partners</a>
+  </div>
+</div>
+
+<!-- Sidebar -->
+<nav class="w3-sidebar w3-bar-block w3-collapse w3-large w3-theme-l5 w3-animate-left" id="mySidebar">
+  <a href="javascript:void(0)" onclick="w3_close()" class="w3-right w3-xlarge w3-padding-large w3-hover-black w3-hide-large" title="Close Menu">
+    <i class="fa fa-remove"></i>
+  </a>
+  <h4 class="w3-bar-item"><b>Menu</b></h4>
+  <a class="w3-bar-item w3-button w3-hover-black" href="#">Link</a>
+  <a class="w3-bar-item w3-button w3-hover-black" href="#">Link</a>
+  <a class="w3-bar-item w3-button w3-hover-black" href="#">Link</a>
+  <a class="w3-bar-item w3-button w3-hover-black" href="#">Link</a>
+</nav>
+
+<!-- Overlay effect when opening sidebar on small screens -->
+<div class="w3-overlay w3-hide-large" onclick="w3_close()" style="cursor:pointer" title="close side menu" id="myOverlay"></div>
+
+<!-- Main content: shift it to the right by 250 pixels when the sidebar is visible -->
+<div class="w3-main" style="margin-left:250px">
+
+  <div class="w3-row w3-padding-64">
+    <div class="w3-twothird w3-container">
+      <h1 class="w3-text-teal">Heading</h1>
+      <p>Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed 
+do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim 
+ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut 
+aliquip ex ea commodo consequat. Lorem ipsum
+        dolor sit amet, consectetur adipisicing elit, sed do eiusmod 
+tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim 
+veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea 
+commodo consequat.</p>
+    </div>
+    <div class="w3-third w3-container">
+      <p class="w3-border w3-padding-large w3-padding-32 w3-center">AD</p>
+      <p class="w3-border w3-padding-large w3-padding-64 w3-center">AD</p>
+    </div>
+  </div>
+
+  <div class="w3-row">
+    <div class="w3-twothird w3-container">
+      <h1 class="w3-text-teal">Heading</h1>
+      <p>Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed 
+do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim 
+ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut 
+aliquip ex ea commodo consequat. Lorem ipsum
+        dolor sit amet, consectetur adipisicing elit, sed do eiusmod 
+tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim 
+veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea 
+commodo consequat.</p>
+    </div>
+    <div class="w3-third w3-container">
+      <p class="w3-border w3-padding-large w3-padding-32 w3-center">AD</p>
+      <p class="w3-border w3-padding-large w3-padding-64 w3-center">AD</p>
+    </div>
+  </div>
+
+  <div class="w3-row w3-padding-64">
+    <div class="w3-twothird w3-container">
+      <h1 class="w3-text-teal">Heading</h1>
+      <p>Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed 
+do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim 
+ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut 
+aliquip ex ea commodo consequat. Lorem ipsum
+        dolor sit amet, consectetur adipisicing elit, sed do eiusmod 
+tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim 
+veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea 
+commodo consequat.</p>
+    </div>
+    <div class="w3-third w3-container">
+      <p class="w3-border w3-padding-large w3-padding-32 w3-center">AD</p>
+      <p class="w3-border w3-padding-large w3-padding-64 w3-center">AD</p>
+    </div>
+  </div>
+
+  <!-- Pagination -->
+  <div class="w3-center w3-padding-32">
+    <div class="w3-bar">
+      <a class="w3-button w3-black" href="#">1</a>
+      <a class="w3-button w3-hover-black" href="#">2</a>
+      <a class="w3-button w3-hover-black" href="#">3</a>
+      <a class="w3-button w3-hover-black" href="#">4</a>
+      <a class="w3-button w3-hover-black" href="#">5</a>
+      <a class="w3-button w3-hover-black" href="#">Â»</a>
+    </div>
+  </div>
+
+  <footer id="myFooter">
+    <div class="w3-container w3-theme-l2 w3-padding-32">
+      <h4>Footer</h4>
+    </div>
+
+    <div class="w3-container w3-theme-l1">
+      <p>Powered by <a href="https://www.w3schools.com/w3css/default.asp" target="_blank">w3.css</a></p>
+    </div>
+  </footer>
+
+<!-- END MAIN -->
+</div>
+
+<script>
+// Get the Sidebar
+var mySidebar = document.getElementById("mySidebar");
+
+// Get the DIV with overlay effect
+var overlayBg = document.getElementById("myOverlay");
+
+// Toggle between showing and hiding the sidebar, and add overlay effect
+function w3_open() {
+    if (mySidebar.style.display === 'block') {
+        mySidebar.style.display = 'none';
+        overlayBg.style.display = "none";
+    } else {
+        mySidebar.style.display = 'block';
+        overlayBg.style.display = "block";
+    }
+}
+
+// Close the sidebar with the close button
+function w3_close() {
+    mySidebar.style.display = "none";
+    overlayBg.style.display = "none";
+}
+</script>
+
+
+</body></html>
